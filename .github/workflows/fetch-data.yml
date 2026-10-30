@@ -1,0 +1,46 @@
+name: Оновлення графіка
+
+on:
+  schedule:
+    - cron: "*/15 * * * *"
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths: ["server/**", "scripts/fetch-dtek.mjs", ".github/workflows/fetch-data.yml"]
+
+permissions:
+  contents: write
+
+concurrency:
+  group: fetch-data
+  cancel-in-progress: false
+
+jobs:
+  fetch:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Встановлення залежностей
+        run: npm install --omit=dev --no-audit --no-fund
+
+      - name: Встановлення браузера
+        run: npx playwright install --with-deps chromium
+
+      - name: Отримання графіка з ДТЕК
+        run: xvfb-run -a node scripts/fetch-dtek.mjs --headed
+
+      - name: Публікація у гілку data
+        run: |
+          cd out
+          git init -q -b data
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add schedule.json
+          git commit -q -m "Графік оновлено $(date -u +%Y-%m-%dT%H:%M:%SZ)"
+          git push -q -f "https://x-access-token:${{ secrets.GITHUB_TOKEN }}@github.com/${{ github.repository }}.git" data
