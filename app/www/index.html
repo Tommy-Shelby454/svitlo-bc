@@ -4,7 +4,7 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
   <title>Світло БЦ</title>
-  <meta name="description" content="Графік відключень світла ДТЕК для Білої Церкви">
+  <meta name="description" content="Графік відключень світла ДТЕК">
   <meta name="theme-color" content="#000000" media="(prefers-color-scheme: dark)">
   <meta name="theme-color" content="#f3f3f5" media="(prefers-color-scheme: light)">
   <link rel="manifest" href="manifest.webmanifest">
@@ -13,14 +13,17 @@
   <link rel="stylesheet" href="style.css">
 </head>
 <body>
+  <div class="bg" aria-hidden="true"><i></i><i></i><i></i></div>
   <header id="hdr" class="hdr">
     <div class="hdr-in">
       <h1 id="ttl">Світло</h1>
-      <p id="sub" class="hdr-sub">Біла Церква</p>
+      <p id="sub" class="hdr-sub"></p>
+      <div id="act" class="hdr-act"></div>
     </div>
   </header>
   <div class="spacer" aria-hidden="true"></div>
   <main id="app" aria-live="polite"></main>
+  <nav id="tabs" class="tabs" aria-label="Навігація"></nav>
   <script src="app.js" defer></script>
 </body>
 </html>

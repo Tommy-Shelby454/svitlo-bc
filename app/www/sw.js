@@ -1,6 +1,6 @@
 // Мережа першою (щоб оновлення застосунку доходили одразу), кеш — на випадок відсутності інтернету.
 // Дані графіка (schedule.json) тут не кешуються: застосунок сам зберігає останню відповідь.
-const CACHE = 'svitlo-shell-v2';
+const CACHE = 'svitlo-shell-v3';
 const SHELL = ['./', 'app.js', 'style.css', 'manifest.webmanifest', 'icon-192.png', 'icon-512.png'];
 
 self.addEventListener('install', (e) => {

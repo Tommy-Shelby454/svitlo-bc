@@ -52,3 +52,9 @@ test('snapshotFromRaw: порожня відповідь не падає', () =>
   const snap = snapshotFromRaw({});
   assert.deepEqual(snap.groups, {});
 });
+
+import { housesFromRaw } from '../server/addresses.js';
+test('housesFromRaw: будинок → черга', () => {
+  const m = housesFromRaw({ data: { '18': { sub_type_reason: ['GPV1.1'] }, '5А': { sub_type_reason: ['GPV3.2'] }, '7': {} } });
+  assert.deepEqual(m, { '18': '1.1', '5А': '3.2' });
+});

@@ -1,6 +1,6 @@
 {
   "name": "svitlo-bc",
-  "version": "0.2.0",
+  "version": "0.3.0",
   "description": "Графік відключень світла ДТЕК для Білої Церкви: Android-застосунок + хмарний збір даних",
   "type": "module",
   "private": true,
@@ -19,7 +19,8 @@
   "devDependencies": {
     "@capacitor/android": "^7.4.0",
     "@capacitor/cli": "^7.4.0",
-    "@capacitor/core": "^7.4.0"
+    "@capacitor/core": "^7.4.0",
+    "@capacitor/local-notifications": "^7.0.0"
   },
   "engines": {
     "node": ">=20"
