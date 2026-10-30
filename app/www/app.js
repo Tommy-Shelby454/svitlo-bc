@@ -4,7 +4,7 @@ const TZ = 'Europe/Kiev';
 const REFRESH_MS = 5 * 60 * 1000;
 const STALE_MIN = 90; // скільки хвилин без оновлень на сервері вважаємо підозрілим
 const SCROLL_RANGE = 112; // різниця між великим і малим заголовком, px
-const LS_KEY = 'svitlo.v2';
+const LS_KEY = 'svitlo.v3';
 const DOW = ['Пн', 'Вт', 'Ср', 'Чт', 'Пт', 'Сб', 'Нд'];
 const SVG_TAGS = new Set(['svg', 'circle']);
 
@@ -52,6 +52,50 @@ function humanAgo(min) {
   if (min < 120) return `${Math.round(min)} хв`;
   const hrs = min / 60;
   return hrs < 48 ? `${Math.round(hrs)} год` : `${Math.round(hrs / 24)} дн`;
+}
+
+/* ---------- Пошук адрес ---------- */
+const LATIN = { a: 'а', b: 'в', c: 'с', e: 'е', h: 'н', k: 'к', m: 'м', o: 'о', p: 'р', t: 'т', x: 'х', i: 'і', y: 'у' };
+const nHouse = (s) => String(s).toLowerCase().replace(/\s+/g, '').replace(/[a-z]/g, (c) => LATIN[c] ?? c);
+const nText = (s) => String(s).toLowerCase().replace(/ё/g, 'е').replace(/[.,]/g, ' ').replace(/\s+/g, ' ').trim();
+const natural = (a, b) => a.localeCompare(b, 'uk', { numeric: true });
+
+/** Точна вулиця за введеним текстом (або єдина, що містить цей текст) */
+function findStreet(map, input) {
+  const q = nText(input);
+  if (!q) return null;
+  const names = Object.keys(map.streets);
+  const exact = names.find((n) => nText(n) === q);
+  if (exact) return exact;
+  const part = names.filter((n) => nText(n).includes(q));
+  return part.length === 1 && q.length >= 4 ? part[0] : null;
+}
+/** Підказки вулиць: спершу ті, де збіг ближче до початку назви */
+function suggestStreets(map, input, limit = 8) {
+  const q = nText(input);
+  if (!q) return [];
+  return Object.keys(map.streets)
+    .map((n) => ({ n, i: nText(n).indexOf(q) }))
+    .filter((x) => x.i >= 0)
+    .sort((a, b) => a.i - b.i || natural(a.n, b.n))
+    .slice(0, limit)
+    .map((x) => x.n);
+}
+function findHouse(houses, input) {
+  if (houses[input]) return input;
+  const q = nHouse(input);
+  return q ? Object.keys(houses).find((k) => nHouse(k) === q) ?? null : null;
+}
+function suggestHouses(houses, input, limit = 16) {
+  const q = nHouse(input);
+  return Object.keys(houses).filter((k) => nHouse(k).startsWith(q)).sort(natural).slice(0, limit);
+}
+/** Адреса -> черга за картою міста */
+function resolveAddress(map, street, house) {
+  const sk = findStreet(map, street);
+  if (!sk) return null;
+  const hk = findHouse(map.streets[sk], house);
+  return hk ? { street: sk, house: hk, group: map.streets[sk][hk] } : null;
 }
 
 /* ---------- Дані ---------- */
@@ -134,6 +178,32 @@ async function load() {
   }
 }
 
+let mapCache = null;
+let mapPromise = null;
+function loadMap() {
+  if (mapCache) return Promise.resolve(mapCache);
+  mapPromise ??= (async () => {
+    const url = cfg.addressesUrl || '/addresses.json';
+    const r = await fetch(`${url}${url.includes('?') ? '&' : '?'}t=${Math.floor(Date.now() / 3600000)}`, { cache: 'no-store' });
+    if (!r.ok) throw new Error(r.status === 404 ? 'Список адрес ще не підготовлено на сервері' : `Список адрес недоступний (${r.status})`);
+    const j = await r.json();
+    if (!j || !j.streets) throw new Error('Невірний формат списку адрес');
+    mapCache = j;
+    return j;
+  })().finally(() => { mapPromise = null; });
+  return mapPromise;
+}
+
+/** Раз на добу перевіряє, чи не змінилась черга збереженої адреси */
+async function syncGroup() {
+  const st = store.get();
+  if (!st.address || Date.now() - (st.groupCheckedAt || 0) < 86400000) return;
+  try {
+    const hit = resolveAddress(await loadMap(), st.address.street, st.address.house);
+    if (hit) store.set({ group: hit.group, groupCheckedAt: Date.now() });
+  } catch {}
+}
+
 async function refresh() {
   busy = true; render();
   await load();
@@ -205,34 +275,104 @@ function weekCard(g, today) {
         h('div', { class: 'bar', 'aria-hidden': 'true' }, w.slots.map((s) => h('i', { class: s })))))));
 }
 
-/* ---------- Вибір черги ---------- */
-function closePicker() {
+/* ---------- Вікна (шторки) ---------- */
+function closeSheets() {
   for (const id of ['scrim', 'sheet']) { const el = document.getElementById(id); if (el) el.remove(); }
 }
+function showSheet(label, ...content) {
+  closeSheets();
+  document.body.append(
+    h('div', { class: 'scrim', id: 'scrim', onclick: closeSheets }),
+    h('div', { class: 'sheet', id: 'sheet', role: 'dialog', 'aria-modal': 'true', 'aria-label': label }, h('div', { class: 'grab' }), ...content));
+}
+
+/** Запасний варіант: вибір черги вручну */
 function openPicker() {
-  closePicker();
   const groups = data ? Object.keys(data.groups) : [];
   const current = store.get().group;
-  const pick = (g) => { store.set({ group: g }); closePicker(); render(true); };
-  document.body.append(
-    h('div', { class: 'scrim', id: 'scrim', onclick: closePicker }),
-    h('div', { class: 'sheet', id: 'sheet', role: 'dialog', 'aria-modal': 'true', 'aria-label': 'Вибір черги' },
-      h('div', { class: 'grab' }),
-      h('h2', {}, 'Моя черга'),
-      h('p', {}, 'Свою чергу можна побачити на сайті ДТЕК Київські регіональні електромережі після введення адреси.'),
-      h('div', { class: 'grid' }, groups.map((g) => h('button', { class: 'gbtn', 'aria-pressed': String(g === current), onclick: () => pick(g) }, g)))));
+  const pick = (g) => { store.set({ group: g, address: null, groupCheckedAt: 0 }); closeSheets(); render(true); };
+  showSheet('Вибір черги',
+    h('h2', {}, 'Черга вручну'),
+    h('p', {}, 'Свою чергу видно на сайті ДТЕК Київські регіональні електромережі після введення адреси.'),
+    h('div', { class: 'grid' }, groups.map((g) => h('button', { class: 'gbtn', 'aria-pressed': String(g === current), onclick: () => pick(g) }, g))));
+}
+
+/** Введення адреси: вулиця й будинок із підказками, черга визначається за картою міста */
+function openAddress() {
+  const saved = store.get().address || {};
+  let map = null;
+  let curStreet = null;
+  let curHouse = null;
+
+  const street = h('input', { class: 'field', type: 'text', placeholder: 'Вулиця, напр. Чорних', autocomplete: 'off', autocapitalize: 'none', spellcheck: 'false', 'aria-label': 'Вулиця' });
+  const house = h('input', { class: 'field', type: 'text', placeholder: 'Будинок, напр. 18 або 12А', autocomplete: 'off', autocapitalize: 'characters', 'aria-label': 'Будинок' });
+  street.value = saved.street || '';
+  house.value = saved.house || '';
+  const sugg = h('div', { class: 'sugg' });
+  const msg = h('p', { class: 'msg' }, 'Завантажую список вулиць…');
+  const save = h('button', { class: 'btn', type: 'button' }, 'Зберегти');
+  save.disabled = true;
+
+  function update() {
+    if (!map) return;
+    sugg.replaceChildren();
+    let ok = false;
+    let info = '';
+    curHouse = null;
+    curStreet = findStreet(map, street.value);
+    if (!curStreet) {
+      const list = suggestStreets(map, street.value);
+      list.forEach((n) => sugg.append(h('button', { class: 'sugg-item', type: 'button', onclick: () => { street.value = n; update(); house.focus(); } }, n)));
+      if (street.value.trim() && !list.length) info = 'Такої вулиці не знайдено. Спробуйте ввести лише частину назви.';
+    } else {
+      const houses = map.streets[curStreet];
+      curHouse = findHouse(houses, house.value);
+      if (!curHouse) {
+        const list = suggestHouses(houses, house.value);
+        if (list.length) sugg.append(h('div', { class: 'hchips' }, list.map((x) => h('button', { class: 'hchip', type: 'button', onclick: () => { house.value = x; update(); } }, x))));
+        info = house.value.trim() && !list.length ? 'Такого будинку на цій вулиці немає у списку ДТЕК.' : 'Введіть або оберіть номер будинку.';
+      } else {
+        ok = true;
+        info = `Знайдено: ${curStreet}, ${curHouse} · черга ${houses[curHouse]}`;
+      }
+    }
+    msg.textContent = info;
+    msg.className = ok ? 'msg ok' : 'msg';
+    save.disabled = !ok;
+  }
+  street.addEventListener('input', update);
+  house.addEventListener('input', update);
+  save.addEventListener('click', () => {
+    if (!curStreet || !curHouse) return;
+    store.set({ address: { street: curStreet, house: curHouse }, group: map.streets[curStreet][curHouse], groupCheckedAt: Date.now() });
+    closeSheets();
+    render(true);
+  });
+
+  showSheet('Моя адреса',
+    h('h2', {}, 'Моя адреса'),
+    h('p', {}, 'Адреса зберігається лише на цьому телефоні. Черга визначається автоматично за даними ДТЕК.'),
+    street, house, sugg, msg,
+    h('div', { class: 'sheet-actions' }, save),
+    h('button', { class: 'link', type: 'button', onclick: () => { closeSheets(); openPicker(); } }, 'Не знайшли адресу? Обрати чергу вручну'));
+
+  loadMap()
+    .then((m) => { map = m; msg.textContent = ''; update(); })
+    .catch((err) => { msg.textContent = err.message; msg.className = 'msg err'; });
 }
 
 /* ---------- Малювання ---------- */
-let pickerShown = false;
+let addressPrompted = false;
 
 function render(animate = false) {
   const now = kyivNow();
-  const group = store.get().group;
+  const st = store.get();
+  const group = st.group;
+  const address = st.address;
   const g = groupData(data, group);
   const parts = [];
 
-  $sub.textContent = `${((data && data.city) || 'Біла Церква').replace(/^м\.\s*/, '')}${g ? ` · черга ${group}` : ''}`;
+  $sub.textContent = address ? `${address.street}, ${address.house}${group ? ` · черга ${group}` : ''}` : `${((data && data.city) || 'Біла Церква').replace(/^м\.\s*/, '')}${group ? ` · черга ${group}` : ''}`;
 
   if (!data) {
     parts.push(fetchErr
@@ -247,11 +387,16 @@ function render(animate = false) {
   if (fetchErr) parts.push(h('div', { class: 'note err' }, 'Немає звʼязку з сервером даних. Показано збережений графік.'));
 
   if (!g) {
-    parts.push(h('section', { class: 'card' },
-      h('div', { class: 'card-title' }, h('b', {}, 'Оберіть свою чергу')),
-      h('p', { class: 'muted' }, 'Графік відключень залежить від черги вашої адреси. Оберіть її один раз, і вона збережеться на телефоні.'),
-      h('button', { class: 'btn', onclick: openPicker }, 'Обрати чергу')));
-    if (!pickerShown) { pickerShown = true; openPicker(); }
+    parts.push(group
+      ? h('section', { class: 'card' },
+        h('div', { class: 'card-title' }, h('b', {}, `Для черги ${group} немає графіка`)),
+        h('p', { class: 'muted' }, 'У даних сервера цієї черги поки немає. Спробуйте оновити пізніше або змініть адресу.'),
+        h('button', { class: 'btn', onclick: openAddress }, 'Змінити адресу'))
+      : h('section', { class: 'card' },
+        h('div', { class: 'card-title' }, h('b', {}, 'Додайте свою адресу')),
+        h('p', { class: 'muted' }, 'Введіть вулицю й будинок, і застосунок сам визначить вашу чергу та покаже графік. Адреса зберігається лише на телефоні.'),
+        h('button', { class: 'btn', onclick: openAddress }, 'Додати адресу')));
+    if (!group && !addressPrompted) { addressPrompted = true; openAddress(); }
     return $app.replaceChildren(...parts);
   }
 
@@ -264,7 +409,8 @@ function render(animate = false) {
   const wk = weekCard(g, now.date);
   if (wk) parts.push(wk);
   parts.push(h('div', { class: 'card list' },
-    h('button', { class: 'item', onclick: openPicker }, h('span', {}, 'Моя черга'), h('span', { class: 'val' }, group)),
+    h('button', { class: 'item', onclick: openAddress }, h('span', {}, 'Моя адреса'), h('span', { class: 'val' }, address ? `${address.street}, ${address.house}` : 'не вказано')),
+    h('div', { class: 'item static' }, h('span', {}, 'Черга'), h('b', {}, group)),
     h('button', { class: 'item', onclick: refresh, disabled: busy }, h('span', {}, 'Оновити зараз'), h('span', { class: 'muted small' }, busy ? 'Оновлюю…' : ''))));
   parts.push(h('div', { class: 'foot muted small' },
     data.updated ? h('span', {}, `Оновлено на сайті ДТЕК: ${data.updated}`) : null,
@@ -285,6 +431,7 @@ async function boot() {
   render(true);
   await loadConfig();
   await load();
+  await syncGroup();
   render(false);
   setInterval(async () => { await load(); render(false); }, REFRESH_MS);
   setInterval(() => render(false), 30 * 1000); // перерахунок «зараз» без запиту

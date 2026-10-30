@@ -204,16 +204,19 @@ export async function getStreets() {
   });
 }
 
-/** Сира відповідь getHomeNum для вулиці (з кешем на 5 хв) */
-export async function getRaw(street) {
+async function fetchHomeNum(street) {
+  const r = await callAjax('getHomeNum', [
+    ['city', CITY],
+    ['street', street],
+    ['updateFact', new Date().toLocaleString('uk-UA', { timeZone: TZ })],
+  ]);
+  if (r?.result === false) throw new HttpError(404, 'street_not_found', `ДТЕК не знайшов вулицю «${street}»`);
+  return r;
+}
+
+/** Сира відповідь getHomeNum для вулиці (з кешем на 5 хв; nocache — для масового обходу вулиць) */
+export async function getRaw(street, { nocache = false } = {}) {
   if (DEMO) return demoRaw();
-  return cached(`street|${CITY}|${street}`, async () => {
-    const r = await callAjax('getHomeNum', [
-      ['city', CITY],
-      ['street', street],
-      ['updateFact', new Date().toLocaleString('uk-UA', { timeZone: TZ })],
-    ]);
-    if (r?.result === false) throw new HttpError(404, 'street_not_found', `ДТЕК не знайшов вулицю «${street}»`);
-    return r;
-  });
+  if (nocache) return fetchHomeNum(street);
+  return cached(`street|${CITY}|${street}`, () => fetchHomeNum(street));
 }

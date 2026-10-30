@@ -9,6 +9,8 @@
     "demo": "node server/server.js --demo",
     "fetch": "node scripts/fetch-dtek.mjs",
     "fetch:demo": "node scripts/fetch-dtek.mjs --demo",
+    "map": "node scripts/build-address-map.mjs",
+    "map:demo": "node scripts/build-address-map.mjs --demo",
     "test": "node --test test/*.test.js"
   },
   "dependencies": {

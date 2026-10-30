@@ -9,6 +9,7 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { CITY, DEMO, HttpError, closeSession, getRaw } from './dtek.js';
 import { getSnapshot } from './snapshot.js';
+import { demoAddressMap } from './addresses.js';
 
 const PORT = Number(process.env.PORT) || 3000;
 const WWW = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../app/www');
@@ -32,6 +33,15 @@ const server = http.createServer(async (req, res) => {
     const url = new URL(req.url, 'http://localhost');
 
     if (url.pathname === '/schedule.json') return json(res, 200, await getSnapshot());
+
+    if (url.pathname === '/addresses.json') {
+      if (DEMO) return json(res, 200, demoAddressMap());
+      // реальну карту збирає `npm run map` (довго) або GitHub; локально читаємо out/addresses.json
+      const file = await readFile(path.resolve(WWW, '../../out/addresses.json')).catch(() => null);
+      if (!file) throw new HttpError(404, 'no_map', 'Карти адрес ще немає. Запустіть: npm run map');
+      res.writeHead(200, { 'Content-Type': TYPES['.json'], 'Cache-Control': 'no-store' });
+      return res.end(file);
+    }
 
     if (url.pathname === '/api/raw' && process.env.DEBUG === '1') {
       return json(res, 200, await getRaw((url.searchParams.get('street') || '').trim()));
