@@ -1,0 +1,12 @@
+{
+  "appId": "ua.svitlo.bc",
+  "appName": "Світло БЦ",
+  "webDir": "www",
+  "android": {
+    "backgroundColor": "#000000",
+    "adjustMarginsForEdgeToEdge": "auto"
+  },
+  "server": {
+    "androidScheme": "https"
+  }
+}
