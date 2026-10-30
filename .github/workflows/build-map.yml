@@ -1,0 +1,46 @@
+name: Карта адрес
+
+on:
+  schedule:
+    - cron: "17 3 * * 0"
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths: ["server/addresses.js", "scripts/build-address-map.mjs", ".github/workflows/build-map.yml"]
+
+permissions:
+  contents: write
+
+concurrency:
+  group: build-map
+  cancel-in-progress: false
+
+jobs:
+  map:
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Встановлення залежностей
+        run: npm install --omit=dev --no-audit --no-fund
+
+      - name: Встановлення браузера
+        run: npx playwright install --with-deps chromium
+
+      - name: Збір карти адрес (може тривати до години)
+        run: xvfb-run -a node scripts/build-address-map.mjs --headed
+
+      - name: Публікація у гілку map
+        run: |
+          cd out
+          git init -q -b map
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add addresses.json
+          git commit -q -m "Карту адрес оновлено $(date -u +%Y-%m-%dT%H:%M:%SZ)"
+          git push -q -f "https://x-access-token:${{ secrets.GITHUB_TOKEN }}@github.com/${{ github.repository }}.git" map
